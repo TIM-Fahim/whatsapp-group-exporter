@@ -6,6 +6,7 @@
 *.html
 
 # OS and Editor files
+.vs/
 .DS_Store
 Thumbs.db
 desktop.ini

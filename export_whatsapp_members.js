@@ -2,28 +2,49 @@
     console.clear();
     console.log("%c[WhatsApp Extractor] Starting...", "color: #25D366; font-size: 16px; font-weight: bold;");
 
+    // 1. Check for modal (large groups with "View all members")
     var modal = document.querySelector('[data-testid=contacts-modal]') || 
                 document.querySelector('[data-animate-modal-body=true]');
-                
-    if (!modal) {
-        alert("Error: Please open the 'View all members' / Contacts modal first!");
+
+    // 2. Check for Group Info drawer (small groups without a modal)
+    var drawer = document.querySelector('[data-testid="chat-info-drawer"]') ||
+                 document.querySelector('[data-testid="contact-info-drawer"]') ||
+                 document.querySelector('[data-testid="drawer-right"]') ||
+                 document.querySelector('aside[data-testid="chat-info-drawer"]');
+
+    if (!drawer && !modal) {
+        var panels = document.querySelectorAll('#app div[tabindex="-1"], #app [role="region"], #main ~ div');
+        for (var p = 0; p < panels.length; p++) {
+            var el = panels[p];
+            if (el.innerText && /Group info|Group details|members|participants/i.test(el.innerText)) {
+                drawer = el;
+                break;
+            }
+        }
+    }
+
+    var targetContainer = modal || drawer;
+    if (!targetContainer) {
+        alert("Error: Neither 'Contacts modal' nor 'Group Info' panel was found!\n\n• For large groups: Open 'Group Info' -> click 'View all members'.\n• For small groups: Open 'Group Info' (click the group header).");
         return;
     }
 
-    // 1. Locate the true scroll container
+    var isModalMode = !!modal;
+    console.log("[WhatsApp Extractor] Mode:", isModalMode ? "Modal (Large Group)" : "Sidebar Drawer (Small Group)");
+
+    // Locate the true scroll container
     var scrollEl = null;
-    var allDivs = modal.querySelectorAll('div');
+    var allDivs = targetContainer.querySelectorAll('div');
     for (var i = 0; i < allDivs.length; i++) {
         var d = allDivs[i];
         var s = window.getComputedStyle(d);
-        if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && d.scrollHeight > d.clientHeight + 50) {
+        if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && d.scrollHeight > d.clientHeight + 20) {
             scrollEl = d;
             break;
         }
     }
 
-    if (!scrollEl) {
-        // Fallback: search upward from the virtual height container
+    if (!scrollEl && isModalMode) {
         var tall = modal.querySelector('div[style*="height:"][style*="px"]');
         if (tall) {
             var curr = tall.parentElement;
@@ -38,23 +59,18 @@
     }
 
     if (!scrollEl) {
-        scrollEl = modal.querySelector('.x1r8uery') || modal.querySelector('div[tabindex="0"]');
+        scrollEl = targetContainer.querySelector('.x1r8uery') || targetContainer.querySelector('div[tabindex="0"]') || targetContainer;
     }
 
-    if (!scrollEl) {
-        alert("Error: Could not locate the scrolling list inside the modal.");
-        return;
+    // Determine estimated total members if modal
+    var estTotal = isModalMode ? 350 : 20;
+    if (isModalMode) {
+        var tallContainer = modal.querySelector('div[style*="height:"][style*="px"]');
+        if (tallContainer && tallContainer.style.height) {
+            var px = parseInt(tallContainer.style.height, 10);
+            if (px > 0) estTotal = Math.round(px / 72);
+        }
     }
-
-    // Determine estimated total members
-    var tallContainer = modal.querySelector('div[style*="height:"][style*="px"]');
-    var estTotal = 350;
-    if (tallContainer && tallContainer.style.height) {
-        var px = parseInt(tallContainer.style.height, 10);
-        if (px > 0) estTotal = Math.round(px / 72);
-    }
-    console.log("Found scroll container:", scrollEl);
-    console.log("Estimated total members to extract: ~" + estTotal);
 
     // Create a live on-screen status overlay
     var overlay = document.getElementById("wa-extractor-overlay");
@@ -65,34 +81,58 @@
         document.body.appendChild(overlay);
     }
 
+    var ignoredTitles = new Set([
+        "add member", "add members", "invite to group via link", 
+        "exit group", "report group", "disappearing messages", 
+        "group permissions", "media, links and docs", "media, links, and docs",
+        "starred messages", "mute notifications", "custom notifications", 
+        "encryption", "chat lock", "add to favorites", "clear chat", 
+        "delete group", "search", "group settings", "leave group"
+    ]);
+
     var membersMap = new Map();
 
     function collect() {
-        var items = modal.querySelectorAll('div[data-testid^="list-item-"]');
+        var items = targetContainer.querySelectorAll('div[data-testid^="list-item-"], div[role="listitem"]');
+        if (items.length === 0 && !isModalMode) {
+            items = targetContainer.querySelectorAll('div[role="button"]');
+        }
+
         items.forEach(function(item) {
             if (item.querySelector('[data-testid=section-header]')) return;
             
-            var titleEl = item.querySelector('[data-testid=cell-frame-title]');
-            var secondaryEl = item.querySelector('[data-testid=cell-frame-secondary]');
-            
-            var titleSpan = titleEl ? titleEl.querySelector('[title]') : null;
-            var title = (titleSpan ? titleSpan.getAttribute('title') : (titleEl ? titleEl.textContent : "")).trim();
+            var titleEl = item.querySelector('[data-testid=cell-frame-title]') ||
+                          item.querySelector('span[title], div[title], h2, h3');
+            if (!titleEl) return;
+
+            var titleSpan = titleEl.querySelector('[title]');
+            var title = (titleSpan ? titleSpan.getAttribute('title') : (titleEl.getAttribute('title') || titleEl.textContent || "")).trim();
             if (!title) return;
 
+            if (ignoredTitles.has(title.toLowerCase())) return;
+
+            var secondaryEl = item.querySelector('[data-testid=cell-frame-secondary]');
             var allText = item.innerText || item.textContent || "";
             var isAdmin = /\b(group\s+admin|admin)\b/i.test(allText);
-            
+
+            var cleanDigits = title.replace(/\D/g, "");
+            var isPhone = title.indexOf("+") === 0 || (/^[\d\s\-()]+$/.test(title) && cleanDigits.length >= 8);
+            var isYou = /\byou\b/i.test(title) || /\(you\)/i.test(allText);
+            var hasAvatar = !!item.querySelector('img, [data-testid="default-user"], [data-testid="avatar"]');
+
+            if (!isModalMode && !hasAvatar && !isPhone && !isAdmin && !isYou) {
+                return;
+            }
+
             var about = "";
             if (secondaryEl) {
                 about = (secondaryEl.innerText || secondaryEl.textContent || "").replace(/Add member tag/gi, "").trim();
             }
 
-            var cleanDigits = title.replace(/\D/g, "");
-            var isPhone = title.indexOf("+") === 0 || (/^[\d\s\-()]+$/.test(title) && cleanDigits.length >= 8);
             var phone = isPhone ? title : "";
             var name = isPhone ? "" : title;
+            var key = phone || name || title;
 
-            var key = title;
             if (!membersMap.has(key)) {
                 membersMap.set(key, {
                     phone: phone,
@@ -106,58 +146,75 @@
         });
     }
 
-    // Scroll to the very top first
-    scrollEl.scrollTop = 0;
-    await new Promise(function(r) { setTimeout(r, 500); });
-    collect();
-
-    var consecutiveNoNew = 0;
-    var lastCount = 0;
-    var step = 0;
-
-    while (consecutiveNoNew < 12) {
-        step++;
+    if (isModalMode) {
+        // Modal mode (large groups with virtual scroll)
+        scrollEl.scrollTop = 0;
+        await new Promise(function(r) { setTimeout(r, 500); });
         collect();
 
-        var count = membersMap.size;
-        overlay.innerHTML = "<strong>WhatsApp Extractor</strong><br>" + 
-                            "Extracted: <span style='color:#fff;font-size:18px;font-weight:bold;'>" + count + "</span> / ~" + estTotal + " members<br>" +
-                            "<span style='color:#8696a0;font-size:12px;'>Scrolling... please wait</span>";
+        var consecutiveNoNew = 0;
+        var lastCount = 0;
+        var step = 0;
 
-        if (count > lastCount) {
-            consecutiveNoNew = 0;
-            lastCount = count;
-        } else {
-            consecutiveNoNew++;
-        }
+        while (consecutiveNoNew < 12) {
+            step++;
+            collect();
 
-        // Method A: scrollIntoView on the last visible list item
-        var visibleItems = modal.querySelectorAll('div[data-testid^="list-item-"]');
-        if (visibleItems.length > 0) {
-            var lastVisible = visibleItems[visibleItems.length - 1];
-            try {
-                lastVisible.scrollIntoView({ block: "end", behavior: "auto" });
-            } catch(e) {
-                lastVisible.scrollIntoView(false);
+            var count = membersMap.size;
+            overlay.innerHTML = "<strong>WhatsApp Extractor</strong><br>" + 
+                                "Extracted: <span style='color:#fff;font-size:18px;font-weight:bold;'>" + count + "</span> / ~" + estTotal + " members<br>" +
+                                "<span style='color:#8696a0;font-size:12px;'>Scrolling... please wait</span>";
+
+            if (count > lastCount) {
+                consecutiveNoNew = 0;
+                lastCount = count;
+            } else {
+                consecutiveNoNew++;
             }
+
+            var visibleItems = modal.querySelectorAll('div[data-testid^="list-item-"]');
+            if (visibleItems.length > 0) {
+                var lastVisible = visibleItems[visibleItems.length - 1];
+                try {
+                    lastVisible.scrollIntoView({ block: "end", behavior: "auto" });
+                } catch(e) {
+                    lastVisible.scrollIntoView(false);
+                }
+            }
+
+            scrollEl.scrollTop += 450;
+            scrollEl.dispatchEvent(new Event("scroll", { bubbles: true }));
+
+            var isAtBottom = (scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 100);
+            if (isAtBottom && consecutiveNoNew >= 5) {
+                break;
+            }
+
+            await new Promise(function(r) { setTimeout(r, 280); });
         }
-
-        // Method B: also manually advance scrollTop on the container
-        scrollEl.scrollTop += 450;
-        scrollEl.dispatchEvent(new Event("scroll", { bubbles: true }));
-
-        // Check if reached the bottom of scrollHeight
-        var isAtBottom = (scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 100);
-        if (isAtBottom && consecutiveNoNew >= 5) {
-            console.log("Reached bottom of list and collected all available items.");
-            break;
+    } else {
+        // Sidebar mode (small groups)
+        overlay.innerHTML = "<strong>WhatsApp Extractor</strong><br>" + 
+                            "<span style='color:#8696a0;font-size:13px;'>Scanning Group Info panel...</span>";
+        if (scrollEl && scrollEl.scrollHeight > scrollEl.clientHeight) {
+            for (var pos = 0; pos <= scrollEl.scrollHeight; pos += 250) {
+                scrollEl.scrollTop = pos;
+                scrollEl.dispatchEvent(new Event("scroll", { bubbles: true }));
+                collect();
+                await new Promise(function(r) { setTimeout(r, 150); });
+            }
+            scrollEl.scrollTop = 0;
         }
-
-        // Allow WhatsApp Web time to mount next items
-        await new Promise(function(r) { setTimeout(r, 280); });
     }
 
     collect(); // Final sweep
+
+    if (membersMap.size === 0) {
+        overlay.innerHTML = "<strong style='color:#ff5f56;'>No members found</strong>";
+        setTimeout(function() { if (overlay) overlay.remove(); }, 4000);
+        alert("No members found. Make sure the members list or Group Info panel is visible.");
+        return;
+    }
 
     overlay.innerHTML = "<strong>WhatsApp Extractor</strong><br>" + 
                         "Done! Total: <span style='color:#fff;font-size:18px;font-weight:bold;'>" + membersMap.size + "</span> members<br>" +

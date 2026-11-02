@@ -1,51 +1,57 @@
 # WhatsApp Group Member Extractor 🚀
 
-A lightweight, zero-dependency browser script to extract all members (phone numbers, display names, admin roles, and bio/about status) from any WhatsApp Web group directly into a clean CSV / Excel file.
+A lightweight, zero-dependency browser script collection to extract all members (phone numbers, display names, admin roles, and bio/about status) from any WhatsApp Web group directly into a clean CSV / Excel file.
 
-Unlike extensions or third-party paid tools, this script runs entirely within your browser's Developer Tools console. Your data never leaves your computer, ensuring complete privacy and security.
+Unlike extensions or third-party paid tools, these scripts run entirely within your browser's Developer Tools console. Your data never leaves your computer, ensuring complete privacy and security.
+
+---
+
+## 📦 Included Scripts
+
+| Script | Best Used For | Mode of Operation |
+| :--- | :--- | :--- |
+| **[`export_whatsapp_members.js`](./export_whatsapp_members.js)** | **Large & Standard Groups** | Extracts from the **"View all members"** modal with high-performance virtual auto-scrolling (supports hundreds or thousands of contacts). Also auto-falls back to sidebar if no modal exists. |
+| **[`export_small_group_members.js`](./export_small_group_members.js)** | **Small Groups (< 10-15 members)** | Specifically designed for groups where WhatsApp Web **does not show** a "View all" button. Extracts members directly from the **Group Info side panel**. |
 
 ---
 
 ## ✨ Features
 
-- **⚡ Zero Dependencies / No Installation:** No sketchy browser extensions or software to install. Works purely with native JavaScript in Developer Tools.
-- **📜 Virtual Scrolling Support:** WhatsApp Web dynamically mounts and unmounts DOM nodes as you scroll (virtualized list). This script smoothly scrolls down through the entire modal, capturing every contact without missing any.
+- **⚡ Zero Dependencies / No Installation:** No sketchy browser extensions or external software. Works purely with native JavaScript in Developer Tools.
+- **📜 Virtual Scrolling Support:** Handles WhatsApp Web's dynamic DOM unmounting smoothly without skipping contacts.
 - **🏷️ Smart Field Parsing:**
   - Phone Number (for unsaved contacts)
   - Display Name / Saved Contact Label
   - Admin Role Detection (`Admin` vs `Member`)
   - "About" / Bio status
 - **🖥️ Live On-Screen Progress HUD:** Floating overlay on the WhatsApp Web page showing live extraction count and progress.
-- **📊 Direct CSV Export:** Automatically triggers a download of a UTF-8 BOM encoded CSV file, perfectly compatible with Microsoft Excel, Google Sheets, and CRM tools.
+- **📊 Direct CSV Export:** Automatically triggers a download of a UTF-8 BOM encoded CSV file, directly compatible with Microsoft Excel, Google Sheets, and CRM tools.
 - **🔒 100% Client-Side & Private:** All processing happens locally in your browser memory. No data is sent to external servers or third-party APIs.
 
 ---
 
 ## 📋 How to Use
 
-### Step 1: Open WhatsApp Web
-1. Go to [web.whatsapp.com](https://web.whatsapp.com) and log in.
-2. Open the group whose members you want to extract.
+### Option A: For Large / Standard Groups (with "View all" modal)
+1. Open [web.whatsapp.com](https://web.whatsapp.com) and click on the group.
+2. Click the group header / title at the top to open **Group Info**.
+3. Scroll down to the **Members** section and click **"View all"** to open the member popup modal.
+4. Press `F12` (or right-click anywhere -> **Inspect**) and go to the **Console** tab.
+5. Copy the code from [`export_whatsapp_members.js`](./export_whatsapp_members.js), paste it into the Console, and press **Enter**.
+6. The script will auto-scroll through the entire modal and download your CSV.
 
-### Step 2: Open Group Members Modal
-1. Click the group header / title at the top to open **Group Info**.
-2. Scroll down to the **Members** section.
-3. Click **"View all"** (or click on the member list) to open the popup modal showing all group members.
-   > **Important:** Keep the "View all members" modal open on your screen before running the script.
+---
 
-### Step 3: Open Browser Developer Tools
-- Press `F12` or `Ctrl + Shift + I` (on Windows) or `Cmd + Option + I` (on Mac).
-- Navigate to the **Console** tab.
+### Option B: For Small Groups (No "View all" modal)
+When a group only has a few members (usually under ~10–15), WhatsApp Web displays all members directly in the sidebar drawer and hides the "View all" button.
 
-### Step 4: Run the Script
-1. Copy the full code from [`export_whatsapp_members.js`](./export_whatsapp_members.js).
-2. Paste it into the Console.
-   > *Note: If Chrome/Edge blocks pasting with a warning about self-XSS, type `allow pasting` and press Enter first, then paste the code.*
-3. Press **Enter**.
+1. Open [web.whatsapp.com](https://web.whatsapp.com) and click on the group.
+2. Click the group header / title at the top to open the **Group Info** right sidebar.
+3. Press `F12` and open the **Console** tab.
+4. Copy the code from [`export_small_group_members.js`](./export_small_group_members.js), paste it into the Console, and press **Enter**.
+5. It will scan the Group Info panel, collect all members, and automatically download the CSV.
 
-### Step 5: Wait & Download
-- The script will automatically scroll through the modal, updating you with a green progress box at the top right.
-- Once completed, a CSV file named `WhatsApp_Group_Members_All_<count>.csv` will automatically download to your computer.
+> *Note: If Chrome/Edge blocks pasting with a warning about self-XSS, type `allow pasting` and press Enter first, then paste the script.*
 
 ---
 
@@ -65,21 +71,19 @@ The exported `.csv` file contains the following columns:
 
 ## 🛠️ How It Works Internally
 
-1. **Modal & Container Detection:** Automatically detects WhatsApp Web's contacts dialog (`[data-testid=contacts-modal]` or `[data-animate-modal-body=true]`) and queries the active scroll container.
-2. **Auto-Scroll Loop:** Iterates down the virtualized container using dual-scroll mechanics (`scrollIntoView` on visible items + dynamic `scrollTop` offsets).
-3. **Deduplication:** Maintains an internal unique `Map` to prevent duplicate entries while virtual DOM nodes are mounted/unmounted during scrolling.
-4. **CSV Generation & Download:** Converts the accumulated records into an RFC 4180-compliant CSV with a `\ufeff` UTF-8 Byte Order Mark (BOM) to prevent character encoding issues in Excel.
+1. **DOM Container Detection:** Detects whether the active view is the popup contacts dialog (`[data-testid=contacts-modal]`) or the side drawer (`[data-testid=chat-info-drawer]`).
+2. **Auto-Scroll & Render Loop:** Advances the scroll container while dispatching scroll events to trigger WhatsApp Web's component rendering.
+3. **Deduplication:** Maintains an internal unique `Map` to prevent duplicate entries while elements are mounted and unmounted.
+4. **CSV Generation & Download:** Converts records into an RFC 4180-compliant CSV with a `\ufeff` UTF-8 Byte Order Mark (BOM) to guarantee correct character display in Microsoft Excel.
 
 ---
 
 ## ⚠️ Troubleshooting & Tips
 
 - **"Please open the 'View all members' / Contacts modal first!"**  
-  Make sure you clicked "View all" in group details so the modal containing the member list is visible before executing the script.
-- **List stops scrolling prematurely:**  
-  Slow down or check if your internet or WhatsApp Web is lagging. WhatsApp Web occasionally takes a few hundred milliseconds to fetch member metadata for large groups (500+ members).
+  If the group is large, make sure you clicked "View all" in group details so the modal is open. If it's a small group without a "View all" button, use `export_small_group_members.js`.
 - **Opening in Excel:**  
-  Because the CSV includes a UTF-8 BOM, double-clicking it will open cleanly in Excel without garbling special characters or symbols.
+  Because the CSV includes a UTF-8 BOM, double-clicking it will open cleanly in Excel without garbling international characters or phone number formatting.
 
 ---
 
