@@ -1,0 +1,19 @@
+# Exports and extracted data (NEVER commit personal contacts / phone numbers)
+*.csv
+*.xlsx
+*.xls
+*.json
+*.html
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.suo
+*.user
+
+# Temporary files
+*.tmp
+*.log
